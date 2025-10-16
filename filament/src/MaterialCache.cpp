@@ -91,7 +91,8 @@ backend::Handle<backend::HwProgram> MaterialCache::acquireAndPrepareProgram(FEng
         backend::CompilerPriorityQueue const priorityQueue) {
     backend::Handle<backend::HwProgram>* program = mPrograms.acquire(specialization,
             [&engine, &material, &specialization, priorityQueue]() {
-                return material.compileProgram(engine, specialization, priorityQueue);
+                return material.compileProgram(engine, material.getMaterialParser(), specialization,
+                        priorityQueue);
             });
     assert_invariant(program);
     return *program;
@@ -100,9 +101,10 @@ backend::Handle<backend::HwProgram> MaterialCache::acquireAndPrepareProgram(FEng
 backend::Handle<backend::HwProgram> MaterialCache::prepareProgram(FEngine& engine,
         MaterialDefinition const& material, ProgramSpecialization const& specialization,
         backend::CompilerPriorityQueue const priorityQueue) {
-    backend::Handle<backend::HwProgram>* program = mPrograms.get(specialization,
-            [&engine, &material, &specialization, priorityQueue]() {
-                return material.compileProgram(engine, specialization, priorityQueue);
+    backend::Handle<backend::HwProgram>* program =
+            mPrograms.get(specialization, [&engine, &material, &specialization, priorityQueue]() {
+                return material.compileProgram(engine, material.getMaterialParser(), specialization,
+                        priorityQueue);
             });
     assert_invariant(program);
     return *program;

@@ -60,6 +60,7 @@ struct MaterialDefinition {
     // Must be called outside of backend render pass.
     // Must be called before Material::getProgram().
     backend::Handle<backend::HwProgram> compileProgram(FEngine& engine,
+            MaterialParser const& parser,
             ProgramSpecialization const& specialization,
             backend::CompilerPriorityQueue priorityQueue) const noexcept;
 
@@ -156,10 +157,10 @@ private:
     utils::Slice<const Variant> getVariants() const noexcept;
     utils::Slice<const Variant> getDepthVariants() const noexcept;
 
-    backend::Program getSurfaceProgram(FEngine& engine,
+    backend::Program getSurfaceProgram(FEngine& engine, MaterialParser const& parser,
             ProgramSpecialization const& specialization) const noexcept;
 
-    backend::Program getProgramWithVariants(FEngine const& engine,
+    backend::Program getProgramWithVariants(FEngine const& engine, MaterialParser const& parser,
             ProgramSpecialization const& specialization, Variant vertexVariant,
             Variant fragmentVariant) const;
 

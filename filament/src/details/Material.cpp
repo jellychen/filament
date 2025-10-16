@@ -207,10 +207,15 @@ void FMaterial::terminate(FEngine& engine) {
     if (UTILS_UNLIKELY(server)) {
         server->removeMaterial(mDebuggerId);
     }
+    if (isEditedMaterial()) {
+        destroyEditedPrograms();
+    }
 #endif
 
-    mDefinition.releasePrograms(engine, mCachedPrograms.as_slice(), mSpecializationConstants,
-            mIsDefaultMaterial);
+    if (!isEditedMaterial()) {
+        mDefinition.releasePrograms(engine, mCachedPrograms.as_slice(), mSpecializationConstants,
+                mIsDefaultMaterial);
+    }
     engine.getMaterialCache().releaseMaterial(engine, mDefinition);
     engine.getMaterialCache().getSpecializationConstantsInternPool().release(
             mSpecializationConstants);
@@ -278,8 +283,14 @@ Handle<HwProgram> FMaterial::prepareProgramSlow(Variant const variant,
         return mCachedPrograms[variant.key] =
                 defaultMaterial->prepareProgram(variant, priorityQueue);
     }
+#if FILAMENT_ENABLE_MATDBG
+    if (isEditedMaterial()) {
+        return mCachedPrograms[variant.key] = mDefinition.compileProgram(mEngine,
+                *mEditedMaterialParser, getProgramSpecialization(variant), priorityQueue);
+    }
+#endif
     return mCachedPrograms[variant.key] = mEngine.getMaterialCache().prepareProgram(mEngine,
-                   mDefinition, getProgramSpecialization(variant), priorityQueue);
+            mDefinition, getProgramSpecialization(variant), priorityQueue);
 }
 
 [[nodiscard]]
@@ -289,25 +300,14 @@ Handle<HwProgram> FMaterial::getProgramSlow(Variant const variant) const noexcep
         FILAMENT_CHECK_PRECONDITION(defaultMaterial);
         return mCachedPrograms[variant.key] = defaultMaterial->getProgram(variant);
     }
-    return mCachedPrograms[variant.key] =
-                   mEngine.getMaterialCache().getProgram(getProgramSpecialization(variant));
-}
-
 #if FILAMENT_ENABLE_MATDBG
-void FMaterial::updateActiveProgramsForMatdbg(Variant const variant) const noexcept {
-    assert_invariant((size_t)variant.key < VARIANT_COUNT);
-    std::unique_lock lock(mActiveProgramsLock);
-    if (getMaterialDomain() == MaterialDomain::SURFACE) {
-        auto vert = Variant::filterVariantVertex(variant);
-        auto frag = Variant::filterVariantFragment(variant);
-        mActivePrograms.set(vert.key);
-        mActivePrograms.set(frag.key);
-    } else {
-        mActivePrograms.set(variant.key);
+    if (isEditedMaterial()) {
+        PANIC_PRECONDITION("Program for edited material was not prepared with prepareProgram()");
     }
-    lock.unlock();
-}
 #endif
+    return mCachedPrograms[variant.key] =
+            mEngine.getMaterialCache().getProgram(getProgramSpecialization(variant));
+}
 
 FMaterialInstance* FMaterial::createInstance(const char* name) const noexcept {
     if (mDefaultMaterialInstance) {
@@ -405,6 +405,23 @@ size_t FMaterial::getParameters(ParameterInfo* parameters, size_t count) const n
 
 #if FILAMENT_ENABLE_MATDBG
 
+void FMaterial::updateActiveProgramsForMatdbg(Variant const variant) const noexcept {
+    assert_invariant((size_t)variant.key < VARIANT_COUNT);
+    std::unique_lock lock(mActiveProgramsLock);
+    if (getMaterialDomain() == MaterialDomain::SURFACE) {
+        auto vert = Variant::filterVariantVertex(variant);
+        auto frag = Variant::filterVariantFragment(variant);
+        mActivePrograms.set(vert.key);
+        mActivePrograms.set(frag.key);
+    } else {
+        mActivePrograms.set(variant.key);
+    }
+    lock.unlock();
+}
+
+void FMaterial::destroyEditedPrograms() noexcept {
+}
+
 // Swaps in an edited version of the original package that was used to create the material. The
 // edited package was stashed in response to a debugger event. This is invoked only when the
 // Material Debugger is attached. The only editable features of a material package are the shader
@@ -412,7 +429,13 @@ size_t FMaterial::getParameters(ParameterInfo* parameters, size_t count) const n
 void FMaterial::applyPendingEdits() noexcept {
     const char* name = mDefinition.name.c_str();
     DLOG(INFO) << "Applying edits to " << (name ? name : "(untitled)");
-    destroyPrograms(mEngine); // FIXME: this will not destroy the shared variants
+    if (isEditedMaterial()) {
+        destroyEditedPrograms();
+    } else {
+        mDefinition.releasePrograms(mEngine, mCachedPrograms.as_slice(), mSpecializationConstants,
+                mIsDefaultMaterial);
+    }
+
     latchPendingEdits();
 }
 
@@ -469,12 +492,21 @@ void FMaterial::setSpecializationConstants(SpecializationConstantsBuilder&& buil
 
     auto& internPool = mEngine.getMaterialCache().getSpecializationConstantsInternPool();
 
+#if FILAMENT_ENABLE_MATDBG
+    if (isEditedMaterial()) {
+        internPool.release(mSpecializationConstants);
+        mSpecializationConstants = internPool.acquire(std::move(builder.mConstants));
+        destroyEditedPrograms();
+        return;
+    }
+#endif
+
     // Release old resources...
     mDefinition.releasePrograms(mEngine, mCachedPrograms.as_slice(), mSpecializationConstants,
             mIsDefaultMaterial);
     internPool.release(mSpecializationConstants);
 
-    // Then acquire new ones
+    // Then acquire new ones.
     mSpecializationConstants = internPool.acquire(std::move(builder.mConstants));
     mDefinition.acquirePrograms(mEngine, mCachedPrograms.as_slice(), mSpecializationConstants,
             mIsDefaultMaterial);

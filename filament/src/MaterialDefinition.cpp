@@ -516,16 +516,17 @@ void MaterialDefinition::processDescriptorSets(FEngine& engine) {
 
 
 Handle<HwProgram> MaterialDefinition::compileProgram(FEngine& engine,
+        MaterialParser const& parser,
         ProgramSpecialization const& specialization,
         backend::CompilerPriorityQueue const priorityQueue) const noexcept {
     assert_invariant(engine.hasFeatureLevel(featureLevel));
     Program pb;
     switch (materialDomain) {
         case MaterialDomain::SURFACE:
-            pb = getSurfaceProgram(engine, specialization);
+            pb = getSurfaceProgram(engine, parser, specialization);
             break;
         case MaterialDomain::POST_PROCESS:
-            pb = getProgramWithVariants(engine, specialization, specialization.variant,
+            pb = getProgramWithVariants(engine, parser, specialization, specialization.variant,
                     specialization.variant);
             break;
         case MaterialDomain::COMPUTE:
@@ -540,7 +541,7 @@ Handle<HwProgram> MaterialDefinition::compileProgram(FEngine& engine,
     return program;
 }
 
-Program MaterialDefinition::getSurfaceProgram(FEngine& engine,
+Program MaterialDefinition::getSurfaceProgram(FEngine& engine, MaterialParser const& parser,
         ProgramSpecialization const& specialization) const noexcept {
     // filterVariant() has already been applied in generateCommands(), shouldn't be needed here
     // if we're unlit, we don't have any bits that correspond to lit materials
@@ -552,7 +553,7 @@ Program MaterialDefinition::getSurfaceProgram(FEngine& engine,
     Variant const vertexVariant   = Variant::filterVariantVertex(specialization.variant);
     Variant const fragmentVariant = Variant::filterVariantFragment(specialization.variant);
 
-    Program pb = getProgramWithVariants(engine, specialization, vertexVariant, fragmentVariant);
+    Program pb = getProgramWithVariants(engine, parser, specialization, vertexVariant, fragmentVariant);
     pb.multiview(
             engine.getConfig().stereoscopicType == StereoscopicType::MULTIVIEW &&
             Variant::isStereoVariant(specialization.variant));
@@ -560,6 +561,7 @@ Program MaterialDefinition::getSurfaceProgram(FEngine& engine,
 }
 
 Program MaterialDefinition::getProgramWithVariants(FEngine const& engine,
+        MaterialParser const& parser,
         ProgramSpecialization const& specialization,
         Variant vertexVariant,
         Variant fragmentVariant) const {
@@ -570,8 +572,6 @@ Program MaterialDefinition::getProgramWithVariants(FEngine const& engine,
     /*
      * Vertex shader
      */
-
-    MaterialParser const& parser = getMaterialParser();
 
     filaflat::ShaderContent& vsBuilder = engine.getVertexShaderContent();
 
